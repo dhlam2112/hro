@@ -52,3 +52,4 @@ export const BANK = {
 Demo lưu trong `localStorage` trình duyệt. Triển khai thật nên dùng Supabase/PostgreSQL + đăng nhập thật.
 # hro
 # 2112
+# 123
