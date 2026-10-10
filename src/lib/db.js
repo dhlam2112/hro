@@ -1,7 +1,6 @@
-// Database demo của CLB, lưu trong localStorage.
+// Database CLB – dùng Supabase thay localStorage
+import { supabase } from './supabase';
 import { addMonths, dueDateOf, monthKey } from './format';
-
-const KEY = 'clubfund.db.v1';
 
 export const PLANS = {
   med: { name: 'Mức quỹ media', fee: 75000 },
@@ -43,7 +42,7 @@ const SEED_USERS = [
   { name: 'Nguyễn Tuấn Phong', plan: 'player', dueDay: 10, paidNow: false },
   { name: 'Nguyễn Thành Trung', plan: 'player', dueDay: 10, paidNow: false },
   { name: 'Lại Thế Hiển', plan: 'player', dueDay: 10, paidNow: false },
-  { name: 'Phạm Trung Hiếu', plan: 'player', dueDay: 10, paidNow: false }
+  { name: 'Phạm Trung Hiếu', plan: 'player', dueDay: 10, paidNow: false },
 ];
 
 const newPayment = (userId, month, amount, dueDay, paid) => ({
@@ -53,13 +52,16 @@ const newPayment = (userId, month, amount, dueDay, paid) => ({
   amount,
   dueDate: dueDateOf(month, dueDay).toISOString(),
   status: paid ? 'paid' : 'pending',
-  paidAt: paid ? new Date(+month.slice(0, 4), +month.slice(4) - 1, Math.max(1, dueDay - 1), 9, 30).toISOString() : null,
+  paidAt: paid
+    ? new Date(+month.slice(0, 4), +month.slice(4) - 1, Math.max(1, dueDay - 1), 9, 30).toISOString()
+    : null,
   method: paid ? 'vietqr' : null,
   proofUrl: null,
   adminNote: null,
   submittedAt: null,
 });
 
+/** Tạo dữ liệu seed local (dùng khi DB trống) */
 export function seed() {
   const now = monthKey();
   const users = [];
@@ -77,50 +79,157 @@ export function seed() {
       lastReminderAt: null,
     });
     const history = u.prevOverdue ? [4, 3, 2] : [3, 2, 1];
-    history.forEach((back) => payments.push(newPayment(id, addMonths(now, -back), fee, u.dueDay, true)));
+    history.forEach((back) =>
+      payments.push(newPayment(id, addMonths(now, -back), fee, u.dueDay, true)),
+    );
     if (u.prevOverdue) payments.push(newPayment(id, addMonths(now, -1), fee, u.dueDay, false));
     if (u.status !== 'paused') payments.push(newPayment(id, now, fee, u.dueDay, u.paidNow));
   });
   return { users, payments, currentUserId: 'U003' };
 }
 
-function ensureCurrentMonth(db) {
+// ===================== SUPABASE =====================
+
+/** Map từ DB (snake_case) → app (camelCase) */
+function mapUser(u) {
+  return {
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    plan: u.plan,
+    status: u.status,
+    dueDay: u.due_day,
+    lastReminderAt: u.last_reminder_at,
+  };
+}
+
+function mapPayment(p) {
+  return {
+    id: p.id,
+    userId: p.user_id,
+    month: p.month,
+    amount: p.amount,
+    dueDate: p.due_date,
+    status: p.status,
+    paidAt: p.paid_at,
+    method: p.method,
+    proofUrl: p.proof_url,
+    adminNote: p.admin_note,
+    submittedAt: p.submitted_at,
+  };
+}
+
+/** Đẩy seed lên Supabase (chỉ chạy 1 lần khi bảng trống) */
+async function seedToSupabase(db) {
+  const { error: e1 } = await supabase.from('users').upsert(
+    db.users.map((u) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      plan: u.plan,
+      status: u.status,
+      due_day: u.dueDay,
+      last_reminder_at: u.lastReminderAt,
+    })),
+  );
+  if (e1) console.error('Seed users error:', e1);
+
+  const { error: e2 } = await supabase.from('payments').upsert(
+    db.payments.map((p) => ({
+      id: p.id,
+      user_id: p.userId,
+      month: p.month,
+      amount: p.amount,
+      due_date: p.dueDate,
+      status: p.status,
+      paid_at: p.paidAt,
+      method: p.method,
+      proof_url: p.proofUrl,
+      admin_note: p.adminNote,
+      submitted_at: p.submittedAt,
+    })),
+  );
+  if (e2) console.error('Seed payments error:', e2);
+}
+
+/** Load toàn bộ từ Supabase */
+export async function loadFromSupabase() {
+  const { data: users, error: e1 } = await supabase.from('users').select('*');
+  const { data: payments, error: e2 } = await supabase.from('payments').select('*');
+
+  if (e1 || e2) {
+    console.error(e1 || e2);
+    return seed(); // fallback nếu lỗi mạng / chưa tạo bảng
+  }
+
+  // Chưa có dữ liệu → seed một lần
+  if (!users || users.length === 0) {
+    const s = seed();
+    await seedToSupabase(s);
+    return s;
+  }
+
+  const mappedUsers = users.map(mapUser);
+  let mappedPayments = (payments || []).map(mapPayment);
+
+  // Đảm bảo mỗi user active có bill tháng hiện tại
   const now = monthKey();
   const extra = [];
-  db.users.forEach((u) => {
+  mappedUsers.forEach((u) => {
     if (u.status !== 'active') return;
-    if (!db.payments.some((p) => p.userId === u.id && p.month === now)) {
-      extra.push(newPayment(u.id, now, PLANS[u.plan].fee, u.dueDay, false));
+    if (!mappedPayments.some((p) => p.userId === u.id && p.month === now)) {
+      const p = newPayment(u.id, now, PLANS[u.plan].fee, u.dueDay, false);
+      extra.push(p);
     }
   });
-  return extra.length ? { ...db, payments: [...db.payments, ...extra] } : db;
-}
 
-export function load() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) return ensureCurrentMonth(JSON.parse(raw));
-  } catch {
-    /* ignore */
+  if (extra.length) {
+    await supabase.from('payments').upsert(
+      extra.map((p) => ({
+        id: p.id,
+        user_id: p.userId,
+        month: p.month,
+        amount: p.amount,
+        due_date: p.dueDate,
+        status: p.status,
+        paid_at: p.paidAt,
+        method: p.method,
+        proof_url: p.proofUrl,
+        admin_note: p.adminNote,
+        submitted_at: p.submittedAt,
+      })),
+    );
+    mappedPayments = [...mappedPayments, ...extra];
   }
-  return seed();
+
+  return {
+    users: mappedUsers,
+    payments: mappedPayments,
+    currentUserId: mappedUsers[0]?.id || 'U001',
+  };
 }
 
-export function save(db) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(db));
-  } catch {
-    /* ignore */
-  }
+/** Cập nhật 1 payment lên Supabase */
+export async function updatePaymentOnSupabase(payment) {
+  const { error } = await supabase.from('payments').upsert({
+    id: payment.id,
+    user_id: payment.userId,
+    month: payment.month,
+    amount: payment.amount,
+    due_date: payment.dueDate,
+    status: payment.status,
+    paid_at: payment.paidAt,
+    method: payment.method,
+    proof_url: payment.proofUrl,
+    admin_note: payment.adminNote,
+    submitted_at: payment.submittedAt,
+  });
+  if (error) console.error('updatePaymentOnSupabase error:', error);
+  return !error;
 }
 
-/**
- * pending  → chưa nộp
- * awaiting → đã gửi biên lai, chờ admin duyệt
- * paid     → admin đã duyệt
- * rejected → admin từ chối
- * overdue  → (derived) pending + quá hạn
- */
+// ===================== HELPERS (giữ nguyên API cũ) =====================
+
 export const statusOf = (p) => {
   if (p.status === 'paid') return 'paid';
   if (p.status === 'awaiting') return 'awaiting';

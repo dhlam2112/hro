@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { load, save } from '../lib/db';
+import { loadFromSupabase, updatePaymentOnSupabase } from '../lib/db';
 
 const Ctx = createContext(null);
 export const useApp = () => useContext(Ctx);
@@ -7,10 +7,16 @@ export const useApp = () => useContext(Ctx);
 const nowIso = () => new Date().toISOString();
 
 function reducer(state, a) {
+  // state = null khi chưa load xong
+  if (!state && a.type !== 'init') return state;
+
   switch (a.type) {
+    case 'init':
+      return a.payload;
+
     // Thành viên gửi biên lai → awaiting (chờ admin)
-    case 'submitProof':
-      return {
+    case 'submitProof': {
+      const next = {
         ...state,
         payments: state.payments.map((p) =>
           p.id === a.id
@@ -25,10 +31,14 @@ function reducer(state, a) {
             : p,
         ),
       };
+      const updated = next.payments.find((p) => p.id === a.id);
+      if (updated) updatePaymentOnSupabase(updated); // đồng bộ lên Supabase
+      return next;
+    }
 
     // Admin duyệt
-    case 'approvePayment':
-      return {
+    case 'approvePayment': {
+      const next = {
         ...state,
         payments: state.payments.map((p) =>
           p.id === a.id
@@ -36,10 +46,14 @@ function reducer(state, a) {
             : p,
         ),
       };
+      const updated = next.payments.find((p) => p.id === a.id);
+      if (updated) updatePaymentOnSupabase(updated);
+      return next;
+    }
 
     // Admin từ chối
-    case 'rejectPayment':
-      return {
+    case 'rejectPayment': {
+      const next = {
         ...state,
         payments: state.payments.map((p) =>
           p.id === a.id
@@ -53,6 +67,10 @@ function reducer(state, a) {
             : p,
         ),
       };
+      const updated = next.payments.find((p) => p.id === a.id);
+      if (updated) updatePaymentOnSupabase(updated);
+      return next;
+    }
 
     case 'switchUser':
       return { ...state, currentUserId: a.id };
@@ -63,9 +81,11 @@ function reducer(state, a) {
 }
 
 export function AppProvider({ children }) {
-  const [db, dispatch] = useReducer(reducer, null, load);
+  const [db, dispatch] = useReducer(reducer, null);
+  const [loading, setLoading] = useState(true);
   const [toasts, setToasts] = useState([]);
   const timers = useRef(new Set());
+
   const [theme, setTheme] = useState(() => {
     try {
       return localStorage.getItem('clubfund.theme') || 'dark';
@@ -82,7 +102,24 @@ export function AppProvider({ children }) {
     }
   });
 
-  useEffect(() => save(db), [db]);
+  // Load dữ liệu từ Supabase khi mở app
+  useEffect(() => {
+    let cancelled = false;
+    loadFromSupabase()
+      .then((data) => {
+        if (!cancelled) {
+          dispatch({ type: 'init', payload: data });
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        console.error('Load Supabase failed:', err);
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -111,7 +148,7 @@ export function AppProvider({ children }) {
   const toggleTheme = useCallback(() => setTheme((t) => (t === 'dark' ? 'light' : 'dark')), []);
 
   const loginAdmin = useCallback((password) => {
-    // Mật khẩu admin – đổi tại đây nếu muốn
+    // Mật khẩu admin
     if (password === 'dhlam211207') {
       sessionStorage.setItem('clubfund.admin', '1');
       setIsAdmin(true);
@@ -129,6 +166,7 @@ export function AppProvider({ children }) {
     () => ({
       db,
       dispatch,
+      loading,
       toasts,
       toast,
       theme,
@@ -137,8 +175,17 @@ export function AppProvider({ children }) {
       loginAdmin,
       logoutAdmin,
     }),
-    [db, toasts, toast, theme, toggleTheme, isAdmin, loginAdmin, logoutAdmin],
+    [db, loading, toasts, toast, theme, toggleTheme, isAdmin, loginAdmin, logoutAdmin],
   );
+
+  // Chưa load xong thì hiện loading
+  if (loading || !db) {
+    return (
+      <div className="grid min-h-screen place-items-center text-slate-500">
+        Đang tải dữ liệu...
+      </div>
+    );
+  }
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
