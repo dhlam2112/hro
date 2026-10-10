@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { CircleDollarSign, LayoutDashboard, Moon, Shield, Sun, User } from 'lucide-react';
+import { LayoutDashboard, Moon, Shield, Sun, User } from 'lucide-react';
 import { useApp } from '../context/AppContext.jsx';
 import { BRAND } from '../config';
 import Toasts from './Toasts.jsx';
@@ -26,9 +26,12 @@ export default function Layout() {
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4">
           <div className="flex items-center gap-2.5">
-            <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 text-white shadow-lg shadow-emerald-500/20">
-              <CircleDollarSign size={19} aria-hidden="true" />
-            </span>
+            {/* Logo CLB */}
+            <img
+              src="/logo.jpg"
+              alt="Logo CLB"
+              className="h-9 w-9 rounded-xl object-cover shadow-lg shadow-emerald-500/20"
+            />
             <div>
               <span className="block text-sm font-semibold tracking-tight sm:text-lg">{BRAND}</span>
               <span className="hidden text-[10px] text-slate-400 sm:block">
