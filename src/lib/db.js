@@ -3,9 +3,9 @@ import { supabase } from './supabase';
 import { addMonths, dueDateOf, monthKey } from './format';
 
 export const PLANS = {
-  med: { name: 'Mức quỹ media', fee: 75000 },
-  mana: { name: 'Mức quỹ manager', fee: 75000 },
-  player: { name: 'Mức quỹ player', fee: 150000 },
+  med: { name: 'Mức quỹ media', fee: 50000 },
+  mana: { name: 'Mức quỹ manager', fee: 50000 },
+  player: { name: 'Mức quỹ player', fee: 100000 },
 };
 
 const SEED_USERS = [
