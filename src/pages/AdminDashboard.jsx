@@ -12,12 +12,10 @@ import {
   Download,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.jsx';
-import { PLANS, statusOf } from '../lib/db';
+import { statusOf } from '../lib/db';
 import { fmtDate, monthLabel, vnd } from '../lib/format';
 import StatusBadge from '../components/StatusBadge.jsx';
 import KpiCard from '../components/KpiCard.jsx';
-
-const ADMIN_PASSWORD_HINT = 'admin123';
 
 export default function AdminDashboard() {
   const { db, dispatch, toast, isAdmin, loginAdmin, logoutAdmin } = useApp();
@@ -27,9 +25,89 @@ export default function AdminDashboard() {
   const [preview, setPreview] = useState(null);
   const [rejectId, setRejectId] = useState(null);
   const [rejectNote, setRejectNote] = useState('');
-  const [filter, setFilter] = useState('awaiting'); // awaiting | all | unpaid
+  const [filter, setFilter] = useState('awaiting');
 
-  // ——— Màn hình đăng nhập ———
+  // ===== TẤT CẢ hooks / tính toán TRƯỚC early return =====
+  const payments = db?.payments || [];
+  const users = db?.users || [];
+
+  const awaitingList = useMemo(
+    () =>
+      payments
+        .filter((p) => p.status === 'awaiting')
+        .sort((a, b) => (b.submittedAt || '').localeCompare(a.submittedAt || '')),
+    [payments],
+  );
+
+  const paidTotal = payments.filter((p) => p.status === 'paid').reduce((s, p) => s + p.amount, 0);
+  const awaitingTotal = awaitingList.reduce((s, p) => s + p.amount, 0);
+
+  const unpaidUsers = users.filter((u) => {
+    if (u.status !== 'active') return false;
+    return payments.some(
+      (p) =>
+        p.userId === u.id &&
+        (p.status === 'pending' || p.status === 'rejected' || statusOf(p) === 'overdue'),
+    );
+  });
+
+  const displayList = useMemo(() => {
+    if (filter === 'awaiting') return awaitingList;
+    if (filter === 'unpaid') {
+      return payments
+        .filter(
+          (p) => p.status === 'pending' || p.status === 'rejected' || statusOf(p) === 'overdue',
+        )
+        .sort((a, b) => a.month.localeCompare(b.month));
+    }
+    return [...payments].sort((a, b) => b.month.localeCompare(a.month)).slice(0, 50);
+  }, [filter, awaitingList, payments]);
+
+  const handleLogin = () => {
+    if (loginAdmin(password)) {
+      toast('Đăng nhập Admin thành công');
+      setPassword('');
+    } else {
+      setError('Sai mật khẩu! Vui lòng thử lại.');
+      setPassword('');
+    }
+  };
+
+  const userOf = (id) => users.find((u) => u.id === id) || { name: '—', id };
+
+  const approve = (id) => {
+    dispatch({ type: 'approvePayment', id });
+    toast('Đã duyệt giao dịch');
+  };
+
+  const openReject = (id) => {
+    setRejectId(id);
+    setRejectNote('');
+  };
+
+  const confirmReject = () => {
+    if (!rejectId) return;
+    dispatch({ type: 'rejectPayment', id: rejectId, note: rejectNote });
+    toast('Đã từ chối giao dịch', 'error');
+    setRejectId(null);
+  };
+
+  const exportCSV = () => {
+    const headers = ['Mã GD', 'Thành viên', 'Tháng', 'Số tiền', 'Trạng thái', 'Ngày gửi', 'Ngày duyệt'];
+    const rows = payments.map((p) => {
+      const u = userOf(p.userId);
+      return [p.id, u.name, p.month, p.amount, statusOf(p), p.submittedAt || '', p.paidAt || ''].join(',');
+    });
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `thong-ke-quy-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    toast('Đã xuất file CSV');
+  };
+
+  // ===== Early return SAU hooks =====
   if (!isAdmin) {
     return (
       <div className="mx-auto flex max-w-md flex-col items-center px-4 py-16">
@@ -69,93 +147,13 @@ export default function AdminDashboard() {
           >
             ← Quay lại trang Thành viên
           </button>
-
-          <p className="mt-5 text-center text-xs text-slate-400">
-            Mật khẩu mặc định: <strong>{ADMIN_PASSWORD_HINT}</strong>
-          </p>
         </div>
       </div>
     );
   }
 
-  function handleLogin() {
-    if (loginAdmin(password)) {
-      toast('Đăng nhập Admin thành công');
-      setPassword('');
-    } else {
-      setError('Sai mật khẩu! Vui lòng thử lại.');
-      setPassword('');
-    }
-  }
-
-  // ——— Dữ liệu thống kê ———
-  const payments = db?.payments || [];
-  const users = db?.users || [];
-
-  const awaitingList = useMemo(
-    () =>
-      payments
-        .filter((p) => p.status === 'awaiting')
-        .sort((a, b) => (b.submittedAt || '').localeCompare(a.submittedAt || '')),
-    [payments],
-  );
-
-  const paidTotal = payments.filter((p) => p.status === 'paid').reduce((s, p) => s + p.amount, 0);
-  const awaitingTotal = awaitingList.reduce((s, p) => s + p.amount, 0);
-  const unpaidUsers = users.filter((u) => {
-    if (u.status !== 'active') return false;
-    return payments.some(
-      (p) => p.userId === u.id && (p.status === 'pending' || p.status === 'rejected' || statusOf(p) === 'overdue'),
-    );
-  });
-
-  const displayList = useMemo(() => {
-    if (filter === 'awaiting') return awaitingList;
-    if (filter === 'unpaid') {
-      return payments
-        .filter((p) => p.status === 'pending' || p.status === 'rejected' || statusOf(p) === 'overdue')
-        .sort((a, b) => a.month.localeCompare(b.month));
-    }
-    return [...payments].sort((a, b) => b.month.localeCompare(a.month)).slice(0, 50);
-  }, [filter, awaitingList, payments]);
-
-  const userOf = (id) => users.find((u) => u.id === id) || { name: '—', id };
-
-  const approve = (id) => {
-    dispatch({ type: 'approvePayment', id });
-    toast('Đã duyệt giao dịch');
-  };
-
-  const openReject = (id) => {
-    setRejectId(id);
-    setRejectNote('');
-  };
-
-  const confirmReject = () => {
-    if (!rejectId) return;
-    dispatch({ type: 'rejectPayment', id: rejectId, note: rejectNote });
-    toast('Đã từ chối giao dịch', 'error');
-    setRejectId(null);
-  };
-
-  const exportCSV = () => {
-    const headers = ['Mã GD', 'Thành viên', 'Tháng', 'Số tiền', 'Trạng thái', 'Ngày gửi', 'Ngày duyệt'];
-    const rows = payments.map((p) => {
-      const u = userOf(p.userId);
-      return [p.id, u.name, p.month, p.amount, statusOf(p), p.submittedAt || '', p.paidAt || ''].join(',');
-    });
-    const csv = [headers.join(','), ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `thong-ke-quy-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    toast('Đã xuất file CSV');
-  };
-
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Bảng điều khiển Admin</h1>
@@ -180,7 +178,6 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* KPI */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard icon={Wallet} label="Tổng đã duyệt" value={vnd(paidTotal)} tone="emerald" />
         <KpiCard icon={CheckCircle2} label="Chờ duyệt" value={awaitingList.length} hint={vnd(awaitingTotal)} tone="sky" />
@@ -188,7 +185,6 @@ export default function AdminDashboard() {
         <KpiCard icon={Shield} label="Tổng thành viên" value={users.filter((u) => u.status === 'active').length} tone="emerald" />
       </div>
 
-      {/* Bộ lọc */}
       <div className="flex flex-wrap gap-2">
         {[
           { key: 'awaiting', label: `Chờ duyệt (${awaitingList.length})` },
@@ -209,7 +205,6 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      {/* Danh sách giao dịch */}
       <div className="space-y-3">
         {displayList.length === 0 && (
           <p className="py-12 text-center text-slate-500">Không có giao dịch nào.</p>
@@ -277,7 +272,6 @@ export default function AdminDashboard() {
         })}
       </div>
 
-      {/* Modal phóng to ảnh */}
       {preview && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
@@ -287,7 +281,6 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* Modal từ chối */}
       {rejectId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
