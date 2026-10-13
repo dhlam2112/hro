@@ -244,3 +244,58 @@ export const payableOf = (db, userId) =>
   db.payments
     .filter((p) => p.userId === userId && p.status !== 'paid' && p.status !== 'awaiting')
     .sort((a, b) => a.month.localeCompare(b.month))[0];
+    // ===================== PLANS (đổi gói online) =====================
+
+export async function loadPlans() {
+  const { data, error } = await supabase.from('plans').select('*');
+  if (error || !data?.length) {
+    return {
+      player: { name: PLANS.player.name, fee: PLANS.player.fee },
+      med: { name: PLANS.med.name, fee: PLANS.med.fee },
+      mana: { name: PLANS.mana.name, fee: PLANS.mana.fee },
+    };
+  }
+  const map = {};
+  data.forEach((p) => {
+    map[p.id] = { name: p.name, fee: p.fee };
+  });
+  return map;
+}
+
+export async function updatePlanOnSupabase(id, { name, fee }) {
+  const { error } = await supabase
+    .from('plans')
+    .upsert({ id, name, fee, updated_at: new Date().toISOString() });
+  if (error) console.error('updatePlanOnSupabase error:', error);
+  return !error;
+}
+
+export async function createMonthBills(monthKeyStr, plans, users) {
+  const rows = users
+    .filter((u) => u.status === 'active')
+    .map((u) => {
+      const fee = plans[u.plan]?.fee ?? PLANS[u.plan]?.fee ?? 0;
+      return {
+        id: `${u.id}_${monthKeyStr}`,
+        user_id: u.id,
+        month: monthKeyStr,
+        amount: fee,
+        due_date: dueDateOf(monthKeyStr, u.dueDay).toISOString(),
+        status: 'pending',
+        paid_at: null,
+        method: null,
+        proof_url: null,
+        admin_note: null,
+        submitted_at: null,
+      };
+    });
+
+  if (!rows.length) return true;
+
+  const { error } = await supabase.from('payments').upsert(rows);
+  if (error) {
+    console.error('createMonthBills error:', error);
+    return false;
+  }
+  return true;
+}

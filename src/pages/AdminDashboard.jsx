@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   CheckCircle2,
@@ -12,7 +12,12 @@ import {
   Download,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.jsx';
-import { statusOf } from '../lib/db';
+import {
+  statusOf,
+  loadPlans,
+  updatePlanOnSupabase,
+  createMonthBills,
+} from '../lib/db';
 import { fmtDate, monthLabel, vnd } from '../lib/format';
 import StatusBadge from '../components/StatusBadge.jsx';
 import KpiCard from '../components/KpiCard.jsx';
@@ -26,8 +31,13 @@ export default function AdminDashboard() {
   const [rejectId, setRejectId] = useState(null);
   const [rejectNote, setRejectNote] = useState('');
   const [filter, setFilter] = useState('awaiting');
+  const [adminTab, setAdminTab] = useState('payments');
+  const [plans, setPlans] = useState(null);
+  const [planDraft, setPlanDraft] = useState({});
+  const [savingPlan, setSavingPlan] = useState(null);
+  const [newMonth, setNewMonth] = useState('');
+  const [creatingMonth, setCreatingMonth] = useState(false);
 
-  // ===== TẤT CẢ hooks / tính toán TRƯỚC early return =====
   const payments = db?.payments || [];
   const users = db?.users || [];
 
@@ -62,6 +72,17 @@ export default function AdminDashboard() {
     }
     return [...payments].sort((a, b) => b.month.localeCompare(a.month)).slice(0, 50);
   }, [filter, awaitingList, payments]);
+
+  useEffect(() => {
+    loadPlans().then((p) => {
+      setPlans(p);
+      setPlanDraft({
+        player: { name: p.player?.name || 'Mức quỹ player', fee: p.player?.fee ?? 0 },
+        med: { name: p.med?.name || 'Mức quỹ media', fee: p.med?.fee ?? 0 },
+        mana: { name: p.mana?.name || 'Mức quỹ manager', fee: p.mana?.fee ?? 0 },
+      });
+    });
+  }, []);
 
   const handleLogin = () => {
     if (loginAdmin(password)) {
@@ -107,7 +128,47 @@ export default function AdminDashboard() {
     toast('Đã xuất file CSV');
   };
 
-  // ===== Early return SAU hooks =====
+  const savePlan = async (id) => {
+    const draft = planDraft[id];
+    if (!draft) return;
+    setSavingPlan(id);
+    const ok = await updatePlanOnSupabase(id, {
+      name: draft.name,
+      fee: Number(draft.fee) || 0,
+    });
+    setSavingPlan(null);
+    if (ok) {
+      setPlans((prev) => ({
+        ...prev,
+        [id]: { name: draft.name, fee: Number(draft.fee) || 0 },
+      }));
+      toast('Đã lưu gói ' + id);
+    } else {
+      toast('Lỗi lưu gói — kiểm tra bảng plans trên Supabase', 'error');
+    }
+  };
+
+  const handleCreateMonth = async () => {
+    if (!/^\d{6}$/.test(newMonth)) {
+      toast('Nhập tháng dạng YYYYMM (vd: 202611)', 'error');
+      return;
+    }
+    const usePlans = plans || {
+      player: { fee: 100000 },
+      med: { fee: 50000 },
+      mana: { fee: 50000 },
+    };
+    setCreatingMonth(true);
+    const ok = await createMonthBills(newMonth, usePlans, users);
+    setCreatingMonth(false);
+    if (ok) {
+      toast('Đã tạo quỹ tháng ' + newMonth);
+      window.location.reload();
+    } else {
+      toast('Lỗi tạo tháng', 'error');
+    }
+  };
+
   if (!isAdmin) {
     return (
       <div className="mx-auto flex max-w-md flex-col items-center px-4 py-16">
@@ -178,99 +239,215 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard icon={Wallet} label="Tổng đã duyệt" value={vnd(paidTotal)} tone="emerald" />
-        <KpiCard icon={CheckCircle2} label="Chờ duyệt" value={awaitingList.length} hint={vnd(awaitingTotal)} tone="sky" />
-        <KpiCard icon={Users} label="Thành viên chưa đóng" value={unpaidUsers.length} tone="amber" />
-        <KpiCard icon={Shield} label="Tổng thành viên" value={users.filter((u) => u.status === 'active').length} tone="emerald" />
+      {/* Tab */}
+      <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2 dark:border-slate-800">
+        <button
+          onClick={() => setAdminTab('payments')}
+          className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+            adminTab === 'payments'
+              ? 'bg-emerald-500/15 text-emerald-600'
+              : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          Giao dịch
+        </button>
+        <button
+          onClick={() => setAdminTab('plans')}
+          className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+            adminTab === 'plans'
+              ? 'bg-emerald-500/15 text-emerald-600'
+              : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          Gói đóng & Tháng
+        </button>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {[
-          { key: 'awaiting', label: `Chờ duyệt (${awaitingList.length})` },
-          { key: 'unpaid', label: 'Chưa đóng' },
-          { key: 'all', label: 'Tất cả gần đây' },
-        ].map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setFilter(f.key)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-              filter === f.key
-                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="space-y-3">
-        {displayList.length === 0 && (
-          <p className="py-12 text-center text-slate-500">Không có giao dịch nào.</p>
-        )}
-
-        {displayList.map((p) => {
-          const u = userOf(p.userId);
-          const st = statusOf(p);
-          return (
-            <div
-              key={p.id}
-              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="font-semibold">{u.name}</p>
-                  <p className="text-sm text-slate-500">
-                    {monthLabel(p.month)} · {vnd(p.amount)} · Hạn {fmtDate(p.dueDate)}
-                  </p>
-                  {p.submittedAt && (
-                    <p className="mt-0.5 text-xs text-slate-400">Gửi lúc {fmtDate(p.submittedAt)}</p>
-                  )}
-                  {p.adminNote && (
-                    <p className="mt-1 text-xs text-rose-500">Ghi chú: {p.adminNote}</p>
-                  )}
-                </div>
-                <StatusBadge status={st} />
-              </div>
-
-              {p.proofUrl && (
-                <div className="mt-3">
-                  <img
-                    src={p.proofUrl}
-                    alt="Biên lai"
-                    className="h-36 cursor-pointer rounded-lg border object-cover dark:border-slate-700"
-                    onClick={() => setPreview(p.proofUrl)}
-                  />
+      {adminTab === 'plans' && (
+        <div className="space-y-6">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+            <h2 className="mb-2 text-lg font-semibold">Gói đóng quỹ</h2>
+            <p className="mb-4 text-sm text-slate-500">
+              Đổi tên / giá. Áp dụng khi tạo tháng mới hoặc bill mới.
+            </p>
+            <div className="space-y-4">
+              {['player', 'med', 'mana'].map((id) => (
+                <div
+                  key={id}
+                  className="flex flex-col gap-2 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-end dark:border-slate-700"
+                >
+                  <div className="min-w-[5rem] text-sm font-medium uppercase text-slate-500">{id}</div>
+                  <div className="flex-1">
+                    <label className="mb-1 block text-xs text-slate-500">Tên hiển thị</label>
+                    <input
+                      value={planDraft[id]?.name ?? ''}
+                      onChange={(e) =>
+                        setPlanDraft((d) => ({
+                          ...d,
+                          [id]: { ...d[id], name: e.target.value },
+                        }))
+                      }
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    />
+                  </div>
+                  <div className="w-full sm:w-36">
+                    <label className="mb-1 block text-xs text-slate-500">Giá (VND)</label>
+                    <input
+                      type="number"
+                      value={planDraft[id]?.fee ?? ''}
+                      onChange={(e) =>
+                        setPlanDraft((d) => ({
+                          ...d,
+                          [id]: { ...d[id], fee: e.target.value },
+                        }))
+                      }
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    />
+                  </div>
                   <button
-                    onClick={() => setPreview(p.proofUrl)}
-                    className="mt-1 inline-flex items-center gap-1 text-xs text-sky-600"
+                    onClick={() => savePlan(id)}
+                    disabled={savingPlan === id}
+                    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
                   >
-                    <Eye size={12} /> Xem phóng to
+                    {savingPlan === id ? 'Đang lưu...' : 'Lưu'}
                   </button>
                 </div>
-              )}
-
-              {p.status === 'awaiting' && (
-                <div className="mt-4 flex gap-2">
-                  <button
-                    onClick={() => approve(p.id)}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white hover:bg-emerald-500"
-                  >
-                    <CheckCircle2 size={16} /> Duyệt
-                  </button>
-                  <button
-                    onClick={() => openReject(p.id)}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-rose-600 py-2.5 text-sm font-medium text-white hover:bg-rose-500"
-                  >
-                    <XCircle size={16} /> Từ chối
-                  </button>
-                </div>
-              )}
+              ))}
             </div>
-          );
-        })}
-      </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+            <h2 className="mb-2 text-lg font-semibold">Thêm tháng quỹ</h2>
+            <p className="mb-4 text-sm text-slate-500">
+              Tạo bill cho mọi thành viên active. Ví dụ: <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">202611</code> = tháng 11/2026.
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <input
+                value={newMonth}
+                onChange={(e) => setNewMonth(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="YYYYMM (vd: 202611)"
+                className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+              />
+              <button
+                onClick={handleCreateMonth}
+                disabled={creatingMonth}
+                className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+              >
+                {creatingMonth ? 'Đang tạo...' : 'Tạo quỹ tháng này'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {adminTab === 'payments' && (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <KpiCard icon={Wallet} label="Tổng đã duyệt" value={vnd(paidTotal)} tone="emerald" />
+            <KpiCard
+              icon={CheckCircle2}
+              label="Chờ duyệt"
+              value={awaitingList.length}
+              hint={vnd(awaitingTotal)}
+              tone="sky"
+            />
+            <KpiCard icon={Users} label="Thành viên chưa đóng" value={unpaidUsers.length} tone="amber" />
+            <KpiCard
+              icon={Shield}
+              label="Tổng thành viên"
+              value={users.filter((u) => u.status === 'active').length}
+              tone="emerald"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {[
+              { key: 'awaiting', label: `Chờ duyệt (${awaitingList.length})` },
+              { key: 'unpaid', label: 'Chưa đóng' },
+              { key: 'all', label: 'Tất cả gần đây' },
+            ].map((f) => (
+              <button
+                key={f.key}
+                onClick={() => setFilter(f.key)}
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                  filter === f.key
+                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                    : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-3">
+            {displayList.length === 0 && (
+              <p className="py-12 text-center text-slate-500">Không có giao dịch nào.</p>
+            )}
+
+            {displayList.map((p) => {
+              const u = userOf(p.userId);
+              const st = statusOf(p);
+              return (
+                <div
+                  key={p.id}
+                  className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold">{u.name}</p>
+                      <p className="text-sm text-slate-500">
+                        {monthLabel(p.month)} · {vnd(p.amount)} · Hạn {fmtDate(p.dueDate)}
+                      </p>
+                      {p.submittedAt && (
+                        <p className="mt-0.5 text-xs text-slate-400">Gửi lúc {fmtDate(p.submittedAt)}</p>
+                      )}
+                      {p.adminNote && (
+                        <p className="mt-1 text-xs text-rose-500">Ghi chú: {p.adminNote}</p>
+                      )}
+                    </div>
+                    <StatusBadge status={st} />
+                  </div>
+
+                  {p.proofUrl && (
+                    <div className="mt-3">
+                      <img
+                        src={p.proofUrl}
+                        alt="Biên lai"
+                        className="h-36 cursor-pointer rounded-lg border object-cover dark:border-slate-700"
+                        onClick={() => setPreview(p.proofUrl)}
+                      />
+                      <button
+                        onClick={() => setPreview(p.proofUrl)}
+                        className="mt-1 inline-flex items-center gap-1 text-xs text-sky-600"
+                      >
+                        <Eye size={12} /> Xem phóng to
+                      </button>
+                    </div>
+                  )}
+
+                  {p.status === 'awaiting' && (
+                    <div className="mt-4 flex gap-2">
+                      <button
+                        onClick={() => approve(p.id)}
+                        className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white hover:bg-emerald-500"
+                      >
+                        <CheckCircle2 size={16} /> Duyệt
+                      </button>
+                      <button
+                        onClick={() => openReject(p.id)}
+                        className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-rose-600 py-2.5 text-sm font-medium text-white hover:bg-rose-500"
+                      >
+                        <XCircle size={16} /> Từ chối
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {preview && (
         <div
