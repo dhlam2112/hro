@@ -299,3 +299,46 @@ export async function createMonthBills(monthKeyStr, plans, users) {
   }
   return true;
 }
+/** Thêm 1 thành viên + (tuỳ chọn) tạo bill tháng hiện tại */
+export async function addUserOnSupabase(user, { createCurrentBill = true, plans } = {}) {
+  const row = {
+    id: user.id,
+    name: user.name,
+    email: user.email || `${user.id.toLowerCase()}@clb.com`,
+    plan: user.plan || 'player',
+    status: user.status || 'active',
+    due_day: user.dueDay ?? 10,
+    last_reminder_at: null,
+  };
+
+  const { error: e1 } = await supabase.from('users').upsert(row);
+  if (e1) {
+    console.error('addUserOnSupabase error:', e1);
+    return { ok: false, error: e1.message };
+  }
+
+  if (createCurrentBill && row.status === 'active') {
+    const month = monthKey();
+    const fee =
+      plans?.[row.plan]?.fee ??
+      PLANS[row.plan]?.fee ??
+      0;
+    const payment = {
+      id: `${row.id}_${month}`,
+      user_id: row.id,
+      month,
+      amount: fee,
+      due_date: dueDateOf(month, row.due_day).toISOString(),
+      status: 'pending',
+      paid_at: null,
+      method: null,
+      proof_url: null,
+      admin_note: null,
+      submitted_at: null,
+    };
+    const { error: e2 } = await supabase.from('payments').upsert(payment);
+    if (e2) console.error('addUser bill error:', e2);
+  }
+
+  return { ok: true };
+}

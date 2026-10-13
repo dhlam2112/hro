@@ -17,6 +17,7 @@ import {
   loadPlans,
   updatePlanOnSupabase,
   createMonthBills,
+  addUserOnSupabase,
 } from '../lib/db';
 import { fmtDate, monthLabel, vnd } from '../lib/format';
 import StatusBadge from '../components/StatusBadge.jsx';
@@ -37,6 +38,13 @@ export default function AdminDashboard() {
   const [savingPlan, setSavingPlan] = useState(null);
   const [newMonth, setNewMonth] = useState('');
   const [creatingMonth, setCreatingMonth] = useState(false);
+  const [newUser, setNewUser] = useState({
+    id: '',
+    name: '',
+    plan: 'player',
+    dueDay: 10,
+  });
+  const [addingUser, setAddingUser] = useState(false);
 
   const payments = db?.payments || [];
   const users = db?.users || [];
@@ -169,6 +177,38 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleAddUser = async () => {
+    const id = newUser.id.trim().toUpperCase();
+    const name = newUser.name.trim();
+    if (!id || !name) {
+      toast('Nhập mã và họ tên', 'error');
+      return;
+    }
+    if (users.some((u) => u.id === id)) {
+      toast('Mã thành viên đã tồn tại', 'error');
+      return;
+    }
+    setAddingUser(true);
+    const { ok, error } = await addUserOnSupabase(
+      {
+        id,
+        name,
+        plan: newUser.plan,
+        dueDay: Number(newUser.dueDay) || 10,
+        status: 'active',
+      },
+      { createCurrentBill: true, plans },
+    );
+    setAddingUser(false);
+    if (ok) {
+      toast('Đã thêm thành viên ' + name);
+      setNewUser({ id: '', name: '', plan: 'player', dueDay: 10 });
+      window.location.reload();
+    } else {
+      toast(error || 'Lỗi thêm thành viên', 'error');
+    }
+  };
+
   if (!isAdmin) {
     return (
       <div className="mx-auto flex max-w-md flex-col items-center px-4 py-16">
@@ -218,7 +258,9 @@ export default function AdminDashboard() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Bảng điều khiển Admin</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Duyệt giao dịch & thống kê quỹ CLB</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Duyệt giao dịch & thống kê quỹ CLB
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -239,7 +281,6 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Tab */}
       <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2 dark:border-slate-800">
         <button
           onClick={() => setAdminTab('payments')}
@@ -276,7 +317,9 @@ export default function AdminDashboard() {
                   key={id}
                   className="flex flex-col gap-2 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-end dark:border-slate-700"
                 >
-                  <div className="min-w-[5rem] text-sm font-medium uppercase text-slate-500">{id}</div>
+                  <div className="min-w-[5rem] text-sm font-medium uppercase text-slate-500">
+                    {id}
+                  </div>
                   <div className="flex-1">
                     <label className="mb-1 block text-xs text-slate-500">Tên hiển thị</label>
                     <input
@@ -319,7 +362,9 @@ export default function AdminDashboard() {
           <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
             <h2 className="mb-2 text-lg font-semibold">Thêm tháng quỹ</h2>
             <p className="mb-4 text-sm text-slate-500">
-              Tạo bill cho mọi thành viên active. Ví dụ: <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">202611</code> = tháng 11/2026.
+              Tạo bill cho mọi thành viên active. Ví dụ:{' '}
+              <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">202611</code> = tháng
+              11/2026.
             </p>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <input
@@ -337,6 +382,63 @@ export default function AdminDashboard() {
               </button>
             </div>
           </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+            <h2 className="mb-2 text-lg font-semibold">Thêm thành viên</h2>
+            <p className="mb-4 text-sm text-slate-500">
+              Tạo thành viên mới và bill tháng hiện tại.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">Mã (vd: U035)</label>
+                <input
+                  value={newUser.id}
+                  onChange={(e) => setNewUser((u) => ({ ...u, id: e.target.value }))}
+                  placeholder="U035"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">Họ và tên</label>
+                <input
+                  value={newUser.name}
+                  onChange={(e) => setNewUser((u) => ({ ...u, name: e.target.value }))}
+                  placeholder="Nguyễn Văn A"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">Gói đóng</label>
+                <select
+                  value={newUser.plan}
+                  onChange={(e) => setNewUser((u) => ({ ...u, plan: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                >
+                  <option value="player">Player</option>
+                  <option value="med">Media</option>
+                  <option value="mana">Manager</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">Ngày hạn đóng (1–28)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={28}
+                  value={newUser.dueDay}
+                  onChange={(e) => setNewUser((u) => ({ ...u, dueDay: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                />
+              </div>
+            </div>
+            <button
+              onClick={handleAddUser}
+              disabled={addingUser}
+              className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+            >
+              {addingUser ? 'Đang thêm...' : 'Thêm thành viên'}
+            </button>
+          </section>
         </div>
       )}
 
@@ -351,7 +453,12 @@ export default function AdminDashboard() {
               hint={vnd(awaitingTotal)}
               tone="sky"
             />
-            <KpiCard icon={Users} label="Thành viên chưa đóng" value={unpaidUsers.length} tone="amber" />
+            <KpiCard
+              icon={Users}
+              label="Thành viên chưa đóng"
+              value={unpaidUsers.length}
+              tone="amber"
+            />
             <KpiCard
               icon={Shield}
               label="Tổng thành viên"
@@ -400,7 +507,9 @@ export default function AdminDashboard() {
                         {monthLabel(p.month)} · {vnd(p.amount)} · Hạn {fmtDate(p.dueDate)}
                       </p>
                       {p.submittedAt && (
-                        <p className="mt-0.5 text-xs text-slate-400">Gửi lúc {fmtDate(p.submittedAt)}</p>
+                        <p className="mt-0.5 text-xs text-slate-400">
+                          Gửi lúc {fmtDate(p.submittedAt)}
+                        </p>
                       )}
                       {p.adminNote && (
                         <p className="mt-1 text-xs text-rose-500">Ghi chú: {p.adminNote}</p>
