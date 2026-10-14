@@ -341,4 +341,35 @@ export async function addUserOnSupabase(user, { createCurrentBill = true, plans 
   }
 
   return { ok: true };
+  }
+/** Xóa 1 thành viên và toàn bộ lịch sử đóng quỹ của họ trên Supabase */
+export async function deleteUserFromSupabase(userId) {
+  try {
+    // 1. Xóa toàn bộ các khoản thanh toán/lịch sử quỹ liên quan đến thành viên này trước
+    const { error: paymentErr } = await supabase
+      .from('payments')
+      .delete()
+      .eq('user_id', userId);
+
+    if (paymentErr) {
+      console.error('Error deleting user payments:', paymentErr);
+      return { ok: false, error: paymentErr.message };
+    }
+
+    // 2. Tiến hành xóa thành viên khỏi bảng users
+    const { error: userErr } = await supabase
+      .from('users')
+      .delete()
+      .eq('id', userId);
+
+    if (userErr) {
+      console.error('Error deleting user:', userErr);
+      return { ok: false, error: userErr.message };
+    }
+
+    return { ok: true };
+  } catch (err) {
+    console.error('Failed to delete user from Supabase:', err);
+    return { ok: false, error: err.message };
+  }
 }
