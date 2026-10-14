@@ -24,6 +24,22 @@ import { fmtDate, monthLabel, vnd } from '../lib/format';
 import StatusBadge from '../components/StatusBadge.jsx';
 import KpiCard from '../components/KpiCard.jsx';
 
+// Component Skeleton Loading cho danh sách giao dịch
+function CardSkeleton() {
+  return (
+    <div className="animate-pulse rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-3 dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex justify-between items-start">
+        <div className="space-y-2">
+          <div className="h-5 w-40 rounded bg-slate-200 dark:bg-slate-800" />
+          <div className="h-4 w-56 rounded bg-slate-200 dark:bg-slate-800" />
+        </div>
+        <div className="h-6 w-20 rounded-full bg-slate-200 dark:bg-slate-800" />
+      </div>
+      <div className="h-28 w-full rounded-lg bg-slate-200 dark:bg-slate-800" />
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   const { db, dispatch, toast, isAdmin, loginAdmin, logoutAdmin } = useApp();
   const navigate = useNavigate();
@@ -103,6 +119,7 @@ export default function AdminDashboard() {
       setPlans(p);
       setPlanDraft({
         player: { name: p.player?.name || 'Mức quỹ player', fee: p.player?.fee ?? 0 },
+        'player gen 7': { name: p['player gen 7']?.name || 'Mức quỹ player', fee: p['player gen 7']?.fee ?? 100000 },
         med: { name: p.med?.name || 'Mức quỹ media', fee: p.med?.fee ?? 0 },
         mana: { name: p.mana?.name || 'Mức quỹ manager', fee: p.mana?.fee ?? 0 },
       });
@@ -180,6 +197,7 @@ export default function AdminDashboard() {
     }
     const usePlans = plans || {
       player: { fee: 100000 },
+      'player gen 7': { fee: 100000 },
       med: { fee: 50000 },
       mana: { fee: 50000 },
     };
@@ -520,72 +538,78 @@ export default function AdminDashboard() {
           </div>
 
           <div className="space-y-3">
-            {displayList.length === 0 && (
+            {!db ? (
+              <>
+                <CardSkeleton />
+                <CardSkeleton />
+                <CardSkeleton />
+              </>
+            ) : displayList.length === 0 ? (
               <p className="py-12 text-center text-slate-500">Không có giao dịch nào phù hợp.</p>
-            )}
-
-            {displayList.map((p) => {
-              const u = userOf(p.userId);
-              const st = statusOf(p);
-              return (
-                <div
-                  key={p.id}
-                  className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold">{u.name} <span className="text-xs text-slate-400">({u.id})</span></p>
-                      <p className="text-sm text-slate-500">
-                        {monthLabel(p.month)} · {vnd(p.amount)} · Hạn {fmtDate(p.dueDate)}
-                      </p>
-                      {p.submittedAt && (
-                        <p className="mt-0.5 text-xs text-slate-400">
-                          Gửi lúc {fmtDate(p.submittedAt)}
+            ) : (
+              displayList.map((p) => {
+                const u = userOf(p.userId);
+                const st = statusOf(p);
+                return (
+                  <div
+                    key={p.id}
+                    className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">{u.name} <span className="text-xs text-slate-400">({u.id})</span></p>
+                        <p className="text-sm text-slate-500">
+                          {monthLabel(p.month)} · {vnd(p.amount)} · Hạn {fmtDate(p.dueDate)}
                         </p>
-                      )}
-                      {p.adminNote && (
-                        <p className="mt-1 text-xs text-rose-500">Ghi chú: {p.adminNote}</p>
-                      )}
+                        {p.submittedAt && (
+                          <p className="mt-0.5 text-xs text-slate-400">
+                            Gửi lúc {fmtDate(p.submittedAt)}
+                          </p>
+                        )}
+                        {p.adminNote && (
+                          <p className="mt-1 text-xs text-rose-500">Ghi chú: {p.adminNote}</p>
+                        )}
+                      </div>
+                      <StatusBadge status={st} />
                     </div>
-                    <StatusBadge status={st} />
+
+                    {p.proofUrl && (
+                      <div className="mt-3">
+                        <img
+                          src={p.proofUrl}
+                          alt="Biên lai"
+                          className="h-36 cursor-pointer rounded-lg border object-cover dark:border-slate-700"
+                          onClick={() => setPreview(p.proofUrl)}
+                        />
+                        <button
+                          onClick={() => setPreview(p.proofUrl)}
+                          className="mt-1 inline-flex items-center gap-1 text-xs text-sky-600"
+                        >
+                          <Eye size={12} /> Xem phóng to
+                        </button>
+                      </div>
+                    )}
+
+                    {p.status === 'awaiting' && (
+                      <div className="mt-4 flex gap-2">
+                        <button
+                          onClick={() => approve(p.id)}
+                          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white hover:bg-emerald-500"
+                        >
+                          <CheckCircle2 size={16} /> Duyệt
+                        </button>
+                        <button
+                          onClick={() => openReject(p.id)}
+                          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-rose-600 py-2.5 text-sm font-medium text-white hover:bg-rose-500"
+                        >
+                          <XCircle size={16} /> Từ chối
+                        </button>
+                      </div>
+                    )}
                   </div>
-
-                  {p.proofUrl && (
-                    <div className="mt-3">
-                      <img
-                        src={p.proofUrl}
-                        alt="Biên lai"
-                        className="h-36 cursor-pointer rounded-lg border object-cover dark:border-slate-700"
-                        onClick={() => setPreview(p.proofUrl)}
-                      />
-                      <button
-                        onClick={() => setPreview(p.proofUrl)}
-                        className="mt-1 inline-flex items-center gap-1 text-xs text-sky-600"
-                      >
-                        <Eye size={12} /> Xem phóng to
-                      </button>
-                    </div>
-                  )}
-
-                  {p.status === 'awaiting' && (
-                    <div className="mt-4 flex gap-2">
-                      <button
-                        onClick={() => approve(p.id)}
-                        className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white hover:bg-emerald-500"
-                      >
-                        <CheckCircle2 size={16} /> Duyệt
-                      </button>
-                      <button
-                        onClick={() => openReject(p.id)}
-                        className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-rose-600 py-2.5 text-sm font-medium text-white hover:bg-rose-500"
-                      >
-                        <XCircle size={16} /> Từ chối
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </>
       )}

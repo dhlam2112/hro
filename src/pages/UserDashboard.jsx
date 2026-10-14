@@ -6,6 +6,48 @@ import { daysBetween, firstName, fmtDate, monthLabel, vnd } from '../lib/format'
 import StatusBadge from '../components/StatusBadge.jsx';
 import CheckoutModal from '../components/CheckoutModal.jsx';
 
+// Component Skeleton Loading cho trang UserDashboard
+function UserDashboardSkeleton() {
+  return (
+    <div className="space-y-6 animate-pulse">
+      {/* Header Skeleton */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-2">
+          <div className="h-8 w-48 rounded-lg bg-slate-200 dark:bg-slate-800" />
+          <div className="h-4 w-64 rounded bg-slate-200 dark:bg-slate-800" />
+        </div>
+        <div className="h-10 w-64 rounded-lg bg-slate-200 dark:bg-slate-800" />
+      </div>
+
+      {/* Card Tình trạng Skeleton */}
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+        <div className="grid gap-6 md:grid-cols-[1fr_auto] md:items-center">
+          <div className="grid gap-5 sm:grid-cols-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="space-y-2">
+                <div className="h-4 w-24 rounded bg-slate-200 dark:bg-slate-800" />
+                <div className="h-6 w-32 rounded bg-slate-200 dark:bg-slate-800" />
+                <div className="h-3 w-20 rounded bg-slate-200 dark:bg-slate-800" />
+              </div>
+            ))}
+          </div>
+          <div className="h-14 w-48 rounded-2xl bg-slate-200 dark:bg-slate-800" />
+        </div>
+      </div>
+
+      {/* Bảng Lịch sử Skeleton */}
+      <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900 space-y-4">
+        <div className="h-6 w-36 rounded bg-slate-200 dark:bg-slate-800" />
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-10 w-full rounded-lg bg-slate-200 dark:bg-slate-800" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function UserDashboard() {
   const { db, dispatch, toast } = useApp();
   const [checkout, setCheckout] = useState(null);
@@ -69,6 +111,11 @@ export default function UserDashboard() {
           ? 'Hạn đóng hôm nay'
           : `Còn ${days} ngày đến hạn`;
 
+  // Nếu dữ liệu db chưa tải xong thì hiển thị Skeleton
+  if (!db) {
+    return <UserDashboardSkeleton />;
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -77,7 +124,7 @@ export default function UserDashboard() {
           <p className="text-sm text-slate-500 dark:text-slate-400">Theo dõi và đóng quỹ hoạt động của CLB.</p>
         </div>
 
-        {/* Thay thế thẻ select cũ bằng ô tìm kiếm chọn thành viên */}
+        {/* Ô tìm kiếm chọn thành viên */}
         <div className="relative" ref={dropdownRef}>
           <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">Chọn thành viên</label>
           <div
