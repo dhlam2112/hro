@@ -11,6 +11,7 @@ import {
   XCircle,
   Download,
   Search,
+  Trash2,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.jsx';
 import {
@@ -49,14 +50,14 @@ export default function AdminDashboard() {
   const [rejectId, setRejectId] = useState(null);
   const [rejectNote, setRejectNote] = useState('');
   const [filter, setFilter] = useState('awaiting');
-  const [adminTab, setAdminTab] = useState('payments');
+  const [adminTab, setAdminTab] = useState('payments'); // 'payments' | 'plans' | 'members'
   const [plans, setPlans] = useState(null);
   const [planDraft, setPlanDraft] = useState({});
   const [savingPlan, setSavingPlan] = useState(null);
   const [newMonth, setNewMonth] = useState('');
   const [creatingMonth, setCreatingMonth] = useState(false);
   
-  // State quản lý ô tìm kiếm tên/mã thành viên trong tab giao dịch
+  // State quản lý ô tìm kiếm tên/mã thành viên trong tab giao dịch & thành viên
   const [memberSearch, setMemberSearch] = useState('');
 
   const [newUser, setNewUser] = useState({
@@ -90,6 +91,15 @@ export default function AdminDashboard() {
     );
   });
 
+  // Lọc danh sách thành viên theo từ khóa tìm kiếm
+  const filteredMembers = useMemo(() => {
+    const q = memberSearch.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter(
+      (u) => u.name.toLowerCase().includes(q) || u.id.toLowerCase().includes(q)
+    );
+  }, [users, memberSearch]);
+
   // Lọc giao dịch theo tab trạng thái
   const displayList = useMemo(() => {
     let list = [];
@@ -104,7 +114,6 @@ export default function AdminDashboard() {
       list = [...payments].sort((a, b) => b.month.localeCompare(a.month)).slice(0, 50);
     }
 
-    // Kết hợp lọc theo từ khóa tìm kiếm tên/mã thành viên
     const q = memberSearch.trim().toLowerCase();
     if (!q) return list;
 
@@ -328,6 +337,16 @@ export default function AdminDashboard() {
           Giao dịch
         </button>
         <button
+          onClick={() => setAdminTab('members')}
+          className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+            adminTab === 'members'
+              ? 'bg-emerald-500/15 text-emerald-600'
+              : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          Quản lý thành viên
+        </button>
+        <button
           onClick={() => setAdminTab('plans')}
           className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
             adminTab === 'plans'
@@ -338,6 +357,78 @@ export default function AdminDashboard() {
           Gói đóng & Tháng
         </button>
       </div>
+
+      {adminTab === 'members' && (
+        <div className="space-y-6">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold">Danh sách thành viên CLB</h2>
+                <p className="text-sm text-slate-500">Quản lý và xóa thành viên khỏi hệ thống.</p>
+              </div>
+              <div className="relative w-full sm:w-72">
+                <Search size={16} className="absolute left-3 top-3 text-slate-400" />
+                <input
+                  type="text"
+                  value={memberSearch}
+                  onChange={(e) => setMemberSearch(e.target.value)}
+                  placeholder="Tìm theo tên hoặc mã..."
+                  className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
+                  <tr>
+                    <th className="px-5 py-3 font-medium">Thành viên</th>
+                    <th className="px-5 py-3 font-medium">Mã TV</th>
+                    <th className="px-5 py-3 font-medium">Gói quỹ</th>
+                    <th className="px-5 py-3 font-medium">Trạng thái</th>
+                    <th className="px-5 py-3 font-medium text-right">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                  {filteredMembers.map((u) => (
+                    <tr key={u.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                      <td className="px-5 py-3.5 font-medium">{u.name}</td>
+                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400">{u.id}</td>
+                      <td className="px-5 py-3.5 uppercase">{u.plan}</td>
+                      <td className="px-5 py-3.5">
+                        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                          u.status === 'active' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-slate-500/10 text-slate-500'
+                        }`}>
+                          {u.status === 'active' ? 'Đang tham gia' : 'Tạm dừng'}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5 text-right">
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`Bạn có chắc chắn muốn xóa thành viên "${u.name}" (${u.id}) không?`)) {
+                              dispatch({ type: 'deleteUser', id: u.id });
+                              toast(`Đã xóa thành viên ${u.name}`);
+                            }
+                          }}
+                          className="rounded-lg p-2 text-slate-400 hover:bg-rose-500/10 hover:text-rose-500 transition"
+                          title="Xóa thành viên"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {filteredMembers.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-slate-500">Không tìm thấy thành viên nào.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      )}
 
       {adminTab === 'plans' && (
         <div className="space-y-6">
