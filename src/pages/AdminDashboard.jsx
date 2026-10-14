@@ -10,6 +10,7 @@ import {
   Wallet,
   XCircle,
   Download,
+  Search,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.jsx';
 import {
@@ -38,6 +39,10 @@ export default function AdminDashboard() {
   const [savingPlan, setSavingPlan] = useState(null);
   const [newMonth, setNewMonth] = useState('');
   const [creatingMonth, setCreatingMonth] = useState(false);
+  
+  // State quản lý ô tìm kiếm tên/mã thành viên trong tab giao dịch
+  const [memberSearch, setMemberSearch] = useState('');
+
   const [newUser, setNewUser] = useState({
     id: '',
     name: '',
@@ -69,17 +74,29 @@ export default function AdminDashboard() {
     );
   });
 
+  // Lọc giao dịch theo tab trạng thái
   const displayList = useMemo(() => {
-    if (filter === 'awaiting') return awaitingList;
-    if (filter === 'unpaid') {
-      return payments
+    let list = [];
+    if (filter === 'awaiting') list = awaitingList;
+    else if (filter === 'unpaid') {
+      list = payments
         .filter(
           (p) => p.status === 'pending' || p.status === 'rejected' || statusOf(p) === 'overdue',
         )
         .sort((a, b) => a.month.localeCompare(b.month));
+    } else {
+      list = [...payments].sort((a, b) => b.month.localeCompare(a.month)).slice(0, 50);
     }
-    return [...payments].sort((a, b) => b.month.localeCompare(a.month)).slice(0, 50);
-  }, [filter, awaitingList, payments]);
+
+    // Kết hợp lọc theo từ khóa tìm kiếm tên/mã thành viên
+    const q = memberSearch.trim().toLowerCase();
+    if (!q) return list;
+
+    return list.filter((p) => {
+      const u = users.find((item) => item.id === p.userId) || { name: '', id: '' };
+      return u.name.toLowerCase().includes(q) || u.id.toLowerCase().includes(q);
+    });
+  }, [filter, awaitingList, payments, memberSearch, users]);
 
   useEffect(() => {
     loadPlans().then((p) => {
@@ -312,7 +329,7 @@ export default function AdminDashboard() {
               Đổi tên / giá. Áp dụng khi tạo tháng mới hoặc bill mới.
             </p>
             <div className="space-y-4">
-              {['player', 'med', 'mana'].map((id) => (
+              {['player', 'player gen 7', 'med', 'mana'].map((id) => (
                 <div
                   key={id}
                   className="flex flex-col gap-2 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-end dark:border-slate-700"
@@ -415,6 +432,7 @@ export default function AdminDashboard() {
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
                 >
                   <option value="player">Player</option>
+                  <option value="player gen 7">Player Gen 7</option>
                   <option value="med">Media</option>
                   <option value="mana">Manager</option>
                 </select>
@@ -467,29 +485,43 @@ export default function AdminDashboard() {
             />
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            {[
-              { key: 'awaiting', label: `Chờ duyệt (${awaitingList.length})` },
-              { key: 'unpaid', label: 'Chưa đóng' },
-              { key: 'all', label: 'Tất cả gần đây' },
-            ].map((f) => (
-              <button
-                key={f.key}
-                onClick={() => setFilter(f.key)}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                  filter === f.key
-                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                    : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap gap-2">
+              {[
+                { key: 'awaiting', label: `Chờ duyệt (${awaitingList.length})` },
+                { key: 'unpaid', label: 'Chưa đóng' },
+                { key: 'all', label: 'Tất cả gần đây' },
+              ].map((f) => (
+                <button
+                  key={f.key}
+                  onClick={() => setFilter(f.key)}
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                    filter === f.key
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                      : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Ô tìm kiếm tên/mã thành viên cho danh sách giao dịch */}
+            <div className="relative w-full sm:w-72">
+              <Search size={16} className="absolute left-3 top-3 text-slate-400" />
+              <input
+                type="text"
+                value={memberSearch}
+                onChange={(e) => setMemberSearch(e.target.value)}
+                placeholder="Tìm theo tên hoặc mã..."
+                className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950"
+              />
+            </div>
           </div>
 
           <div className="space-y-3">
             {displayList.length === 0 && (
-              <p className="py-12 text-center text-slate-500">Không có giao dịch nào.</p>
+              <p className="py-12 text-center text-slate-500">Không có giao dịch nào phù hợp.</p>
             )}
 
             {displayList.map((p) => {
@@ -502,7 +534,7 @@ export default function AdminDashboard() {
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="font-semibold">{u.name}</p>
+                      <p className="font-semibold">{u.name} <span className="text-xs text-slate-400">({u.id})</span></p>
                       <p className="text-sm text-slate-500">
                         {monthLabel(p.month)} · {vnd(p.amount)} · Hạn {fmtDate(p.dueDate)}
                       </p>

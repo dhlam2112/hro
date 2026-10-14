@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { BadgeCheck, CalendarClock, CheckCircle2, Receipt, Wallet, Zap } from 'lucide-react';
+import { useMemo, useState, useRef, useEffect } from 'react';
+import { BadgeCheck, CalendarClock, CheckCircle2, Receipt, Wallet, Zap, Search } from 'lucide-react';
 import { useApp } from '../context/AppContext.jsx';
 import { PLANS, currentPaymentOf, payableOf, statusOf } from '../lib/db';
 import { daysBetween, firstName, fmtDate, monthLabel, vnd } from '../lib/format';
@@ -9,11 +9,38 @@ import CheckoutModal from '../components/CheckoutModal.jsx';
 export default function UserDashboard() {
   const { db, dispatch, toast } = useApp();
   const [checkout, setCheckout] = useState(null);
+  
+  // State quản lý việc mở/đóng và từ khóa tìm kiếm thành viên
+  const [memberSearchOpen, setMemberSearchOpen] = useState(false);
+  const [memberQuery, setMemberQuery] = useState('');
+  const dropdownRef = useRef(null);
 
   const users = useMemo(
     () => [...(db?.users || [])].sort((a, b) => a.name.localeCompare(b.name, 'vi')),
     [db?.users],
   );
+
+  // Lọc danh sách thành viên theo từ khóa (tên hoặc ID)
+  const filteredUsers = useMemo(() => {
+    const q = memberQuery.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter(
+      (u) =>
+        u.name.toLowerCase().includes(q) ||
+        u.id.toLowerCase().includes(q)
+    );
+  }, [users, memberQuery]);
+
+  // Đóng dropdown khi click ra ngoài
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setMemberSearchOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const user = db?.users?.find((u) => u.id === db.currentUserId) || db?.users?.[0] || {};
   const fundLevel = PLANS[user?.plan] || { name: 'Mức quỹ thành viên', fee: 0 };
@@ -49,20 +76,58 @@ export default function UserDashboard() {
           <h1 className="text-2xl font-semibold tracking-tight">Xin chào, {firstName(user?.name)} 👋</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">Theo dõi và đóng quỹ hoạt động của CLB.</p>
         </div>
-        <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-          Thành viên
-          <select
-            value={user?.id || ''}
-            onChange={(e) => dispatch({ type: 'switchUser', id: e.target.value })}
-            className="max-w-[14rem] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+
+        {/* Thay thế thẻ select cũ bằng ô tìm kiếm chọn thành viên */}
+        <div className="relative" ref={dropdownRef}>
+          <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">Chọn thành viên</label>
+          <div
+            onClick={() => setMemberSearchOpen(!memberSearchOpen)}
+            className="flex w-64 cursor-pointer items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
           >
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name} ({u.id})
-              </option>
-            ))}
-          </select>
-        </label>
+            <span className="truncate">{user?.name ? `${user.name} (${user.id})` : '-- Chọn thành viên --'}</span>
+            <span className="text-xs text-slate-400">▼</span>
+          </div>
+
+          {memberSearchOpen && (
+            <div className="absolute right-0 z-50 mt-1 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+              <div className="flex items-center gap-2 border-b border-slate-100 pb-2 mb-2 px-1 dark:border-slate-800">
+                <Search size={16} className="text-slate-400" />
+                <input
+                  type="text"
+                  value={memberQuery}
+                  onChange={(e) => setMemberQuery(e.target.value)}
+                  placeholder="Tìm theo tên hoặc mã..."
+                  className="w-full bg-transparent text-sm focus:outline-none dark:text-slate-100"
+                  autoFocus
+                />
+              </div>
+              <div className="max-h-60 overflow-y-auto space-y-1">
+                {filteredUsers.length === 0 ? (
+                  <p className="py-3 text-center text-xs text-slate-400">Không tìm thấy thành viên</p>
+                ) : (
+                  filteredUsers.map((u) => (
+                    <div
+                      key={u.id}
+                      onClick={() => {
+                        dispatch({ type: 'switchUser', id: u.id });
+                        setMemberSearchOpen(false);
+                        setMemberQuery('');
+                      }}
+                      className={`flex cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                        u.id === user?.id
+                          ? 'bg-emerald-500/10 text-emerald-600 font-medium dark:text-emerald-400'
+                          : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <span className="truncate">{u.name}</span>
+                      <span className="text-xs text-slate-400 ml-2">{u.id}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <section

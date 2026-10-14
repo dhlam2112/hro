@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import { Check, Copy, Loader2, QrCode, RefreshCw, Upload, X } from 'lucide-react';
+import { useEffect, useRef, useState, useMemo } from 'react';
+import { Check, Copy, Loader2, QrCode, RefreshCw, Upload, X, Search, ChevronDown } from 'lucide-react';
 import { BANK } from '../config';
 import { buildVietQrUrl, transferContent } from '../lib/vietqr';
 import { monthLabel, vnd } from '../lib/format';
+import { useApp } from '../context/AppContext.jsx';
 
 function CopyRow({ label, value, mono }) {
   const [copied, setCopied] = useState(false);
@@ -38,14 +39,8 @@ function CopyRow({ label, value, mono }) {
   );
 }
 
-/**
- * Luồng mới:
- * 1. Hiện QR + thông tin CK
- * 2. Thành viên tải ảnh biên lai (bắt buộc)
- * 3. Bấm "Gửi biên lai & chờ duyệt" → status = awaiting
- * 4. Chỉ Admin mới duyệt thành paid
- */
-export default function CheckoutModal({ user, payment, onClose, onSubmit }) {
+export default function CheckoutModal({ user: initialUser, payment, onClose, onSubmit }) {
+  const { db, dispatch } = useApp();
   const [step, setStep] = useState('qr'); // qr | submitting | success
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgError, setImgError] = useState(false);
@@ -54,7 +49,41 @@ export default function CheckoutModal({ user, payment, onClose, onSubmit }) {
   const [proofPreview, setProofPreview] = useState(null);
   const dialogRef = useRef(null);
 
-  const content = transferContent(user.id, payment.month);
+  // Quản lý chọn thành viên trong Modal
+  const [selectedUserId, setSelectedUserId] = useState(initialUser?.id);
+  const [memberSearchOpen, setMemberSearchOpen] = useState(false);
+  const [memberQuery, setMemberQuery] = useState('');
+  const dropdownRef = useRef(null);
+
+  const users = useMemo(
+    () => [...(db?.users || [])].sort((a, b) => a.name.localeCompare(b.name, 'vi')),
+    [db?.users],
+  );
+
+  const currentUser = useMemo(
+    () => users.find((u) => u.id === selectedUserId) || initialUser || {},
+    [users, selectedUserId, initialUser],
+  );
+
+  const filteredUsers = useMemo(() => {
+    const q = memberQuery.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter(
+      (u) => u.name.toLowerCase().includes(q) || u.id.toLowerCase().includes(q),
+    );
+  }, [users, memberQuery]);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setMemberSearchOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const content = transferContent(currentUser.id, payment.month);
   const baseQrUrl = buildVietQrUrl({ amount: payment.amount, content });
   const qrUrl = qrAttempt ? `${baseQrUrl}${baseQrUrl.includes('?') ? '&' : '?'}r=${qrAttempt}` : baseQrUrl;
 
@@ -85,7 +114,6 @@ export default function CheckoutModal({ user, payment, onClose, onSubmit }) {
   const submit = () => {
     if (!proofPreview) return;
     setStep('submitting');
-    // Giả lập upload ngắn
     setTimeout(() => {
       onSubmit(payment.id, proofPreview);
       setStep('success');
@@ -116,7 +144,9 @@ export default function CheckoutModal({ user, payment, onClose, onSubmit }) {
             <h2 id="checkout-title" className="text-base font-semibold">
               Đóng quỹ CLB
             </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Khoản quỹ {monthLabel(payment.month)}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Khoản quỹ {monthLabel(payment.month)}
+            </p>
           </div>
           {step !== 'submitting' && (
             <button
@@ -136,7 +166,7 @@ export default function CheckoutModal({ user, payment, onClose, onSubmit }) {
             </span>
             <h3 className="mt-4 text-lg font-semibold">Đã gửi biên lai!</h3>
             <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-              Giao dịch đang chờ Admin duyệt. Bạn không thể tự xác nhận thanh toán.
+              Giao dịch của <strong>{currentUser.name}</strong> đang chờ Admin duyệt.
             </p>
             <button
               onClick={onClose}
@@ -147,6 +177,66 @@ export default function CheckoutModal({ user, payment, onClose, onSubmit }) {
           </div>
         ) : (
           <div className="space-y-5 px-5 py-5">
+            {/* Chọn thành viên gửi nộp */}
+            <div className="relative" ref={dropdownRef}>
+              <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
+                Thành viên nộp quỹ
+              </label>
+              <button
+                type="button"
+                onClick={() => setMemberSearchOpen(!memberSearchOpen)}
+                className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-medium text-slate-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              >
+                <span className="truncate">
+                  {currentUser.name} ({currentUser.id})
+                </span>
+                <ChevronDown size={16} className="text-slate-400" />
+              </button>
+
+              {memberSearchOpen && (
+                <div className="absolute left-0 right-0 z-50 mt-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                  <div className="mb-2 flex items-center gap-2 border-b border-slate-100 px-2 pb-2 dark:border-slate-800">
+                    <Search size={16} className="text-slate-400" />
+                    <input
+                      type="text"
+                      value={memberQuery}
+                      onChange={(e) => setMemberQuery(e.target.value)}
+                      placeholder="Tìm theo tên hoặc mã..."
+                      className="w-full bg-transparent text-sm focus:outline-none dark:text-slate-100"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="max-h-48 overflow-y-auto space-y-1">
+                    {filteredUsers.length === 0 ? (
+                      <p className="py-3 text-center text-xs text-slate-400">
+                        Không tìm thấy thành viên
+                      </p>
+                    ) : (
+                      filteredUsers.map((u) => (
+                        <div
+                          key={u.id}
+                          onClick={() => {
+                            setSelectedUserId(u.id);
+                            dispatch({ type: 'switchUser', id: u.id });
+                            setMemberSearchOpen(false);
+                            setMemberQuery('');
+                          }}
+                          className={`flex cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                            u.id === currentUser.id
+                              ? 'bg-emerald-500/10 font-medium text-emerald-600 dark:text-emerald-400'
+                              : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          <span className="truncate">{u.name}</span>
+                          <span className="ml-2 text-xs text-slate-400">{u.id}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Thông tin chuyển khoản */}
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 dark:border-slate-700 dark:bg-slate-800/50">
               <CopyRow label="Ngân hàng" value={BANK.BANK_ID} />
@@ -197,7 +287,7 @@ export default function CheckoutModal({ user, payment, onClose, onSubmit }) {
               <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-6 transition hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800/40 dark:hover:bg-slate-800">
                 <input type="file" accept="image/*" className="hidden" onChange={handleProof} />
                 {proofPreview ? (
-                  <img src={proofPreview} alt="Biên lai" className="max-h-40 rounded-lg" />
+                  <img src={proofPreview} alt="Biên lai" className="max-h-40 rounded-lg object-contain" />
                 ) : (
                   <>
                     <Upload size={28} className="mb-2 text-slate-400" />
