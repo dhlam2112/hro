@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { loadFromSupabase, updatePaymentOnSupabase } from '../lib/db';
+// 1. Import thêm deleteUserFromSupabase
+import { loadFromSupabase, updatePaymentOnSupabase, deleteUserFromSupabase } from '../lib/db';
 
 const Ctx = createContext(null);
 export const useApp = () => useContext(Ctx);
@@ -7,14 +8,12 @@ export const useApp = () => useContext(Ctx);
 const nowIso = () => new Date().toISOString();
 
 function reducer(state, a) {
-  // state = null khi chưa load xong
   if (!state && a.type !== 'init') return state;
 
   switch (a.type) {
     case 'init':
       return a.payload;
 
-    // Thành viên gửi biên lai → awaiting (chờ admin)
     case 'submitProof': {
       const next = {
         ...state,
@@ -32,11 +31,10 @@ function reducer(state, a) {
         ),
       };
       const updated = next.payments.find((p) => p.id === a.id);
-      if (updated) updatePaymentOnSupabase(updated); // đồng bộ lên Supabase
+      if (updated) updatePaymentOnSupabase(updated);
       return next;
     }
 
-    // Admin duyệt
     case 'approvePayment': {
       const next = {
         ...state,
@@ -51,7 +49,6 @@ function reducer(state, a) {
       return next;
     }
 
-    // Admin từ chối
     case 'rejectPayment': {
       const next = {
         ...state,
@@ -70,6 +67,24 @@ function reducer(state, a) {
       const updated = next.payments.find((p) => p.id === a.id);
       if (updated) updatePaymentOnSupabase(updated);
       return next;
+    }
+
+    // 2. Thêm case deleteUser
+    case 'deleteUser': {
+      const targetId = a.id;
+      const filteredUsers = state.users.filter((u) => u.id !== targetId);
+      const filteredPayments = (state.payments || []).filter((p) => p.userId !== targetId);
+
+      // Đồng bộ xóa lên Supabase
+      deleteUserFromSupabase(targetId);
+
+      return {
+        ...state,
+        users: filteredUsers,
+        payments: filteredPayments,
+        // Nếu user bị xóa trùng với currentUserId thì chuyển về user đầu tiên còn lại
+        currentUserId: state.currentUserId === targetId ? (filteredUsers[0]?.id || null) : state.currentUserId,
+      };
     }
 
     case 'switchUser':
@@ -102,7 +117,6 @@ export function AppProvider({ children }) {
     }
   });
 
-  // Load dữ liệu từ Supabase khi mở app
   useEffect(() => {
     let cancelled = false;
     loadFromSupabase()
@@ -145,10 +159,13 @@ export function AppProvider({ children }) {
     timers.current.add(timer);
   }, []);
 
+  const removeToast = useCallback((id) => {
+    setToasts((t) => t.filter((x) => x.id !== id));
+  }, []);
+
   const toggleTheme = useCallback(() => setTheme((t) => (t === 'dark' ? 'light' : 'dark')), []);
 
   const loginAdmin = useCallback((password) => {
-    // Mật khẩu admin
     if (password === 'dhlam211207') {
       sessionStorage.setItem('clubfund.admin', '1');
       setIsAdmin(true);
@@ -169,16 +186,16 @@ export function AppProvider({ children }) {
       loading,
       toasts,
       toast,
+      removeToast,
       theme,
       toggleTheme,
       isAdmin,
       loginAdmin,
       logoutAdmin,
     }),
-    [db, loading, toasts, toast, theme, toggleTheme, isAdmin, loginAdmin, logoutAdmin],
+    [db, loading, toasts, toast, removeToast, theme, toggleTheme, isAdmin, loginAdmin, logoutAdmin],
   );
 
-  // Chưa load xong thì hiện loading
   if (loading || !db) {
     return (
       <div className="grid min-h-screen place-items-center text-slate-500">
