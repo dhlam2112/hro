@@ -112,9 +112,10 @@ export default function UserDashboard() {
           : `Còn ${days} ngày đến hạn`;
 
   // Nếu dữ liệu db chưa tải xong thì hiển thị Skeleton
-  if (!db) {
-    return <UserDashboardSkeleton />;
-  }
+  // ✅ Mới: Kiểm tra xem danh sách thành viên trong db đã tải về chưa
+if (!db || !db.users || db.users.length === 0) {
+  return <UserDashboardSkeleton />;
+}
 
   return (
     <div className="space-y-6">
