@@ -52,6 +52,16 @@ export default function UserDashboard() {
   const { db, dispatch, toast } = useApp();
   const [checkout, setCheckout] = useState(null);
   
+  // State giả lập độ trễ để hiển thị Skeleton Loading
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 800); // Giữ hiệu ứng Skeleton trong 0.8 giây
+    return () => clearTimeout(timer);
+  }, []);
+  
   // State quản lý việc mở/đóng và từ khóa tìm kiếm thành viên
   const [memberSearchOpen, setMemberSearchOpen] = useState(false);
   const [memberQuery, setMemberQuery] = useState('');
@@ -111,11 +121,10 @@ export default function UserDashboard() {
           ? 'Hạn đóng hôm nay'
           : `Còn ${days} ngày đến hạn`;
 
-  // Nếu dữ liệu db chưa tải xong thì hiển thị Skeleton
-  // ✅ Mới: Kiểm tra xem danh sách thành viên trong db đã tải về chưa
-if (!db || !db.users || db.users.length === 0) {
-  return <UserDashboardSkeleton />;
-}
+  // Hiển thị Skeleton khi đang trong thời gian giả lập hoặc chưa có dữ liệu thành viên
+  if (isLoading || !db || !db.users || db.users.length === 0) {
+    return <UserDashboardSkeleton />;
+  }
 
   return (
     <div className="space-y-6">
